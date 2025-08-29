@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detector de Emociones Faciales</title>
+    <!-- Tailwind CSS para un diseño moderno y adaptable -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Fuente Inter de Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* Estilos personalizados para la transición de color */
+        body {
+            font-family: 'Inter', sans-serif;
+            /* Transición ultra rápida para el color de fondo */
+            transition: background-color 0.1s ease;
+        }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex flex-col items-center justify-end min-h-screen p-4 sm:p-6">
+
+    <!-- Mensaje de carga a pantalla completa -->
+    <div id="loader" class="fixed inset-0 bg-gray-900 flex flex-col items-center justify-center text-lg text-gray-300 z-50">
+         <svg class="animate-spin h-8 w-8 text-blue-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        Cargando modelos de IA y cámara...
+    </div>
+
+    <!-- Contenedor de video oculto -->
+    <div id="video-container" class="fixed bottom-0 left-0 w-px h-px opacity-0 z-[-1]">
+        <video id="video" width="720" height="560" autoplay muted playsinline></video>
+    </div>
+
+    <!-- Resultados de las emociones en la parte inferior -->
+    <div id="emotion-results" class="w-full max-w-2xl mx-auto mb-4">
+        <!-- Los resultados numéricos se inyectarán aquí dinámicamente -->
+    </div>
+
+    <!-- Incluimos la biblioteca face-api.js -->
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <script>
+        const video = document.getElementById('video');
+        const loader = document.getElementById('loader');
+        const emotionResultsDiv = document.getElementById('emotion-results');
+
+        const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
+
+        const emotionColors = {
+            happy:     { r: 255, g: 217, b: 61 },
+            sad:       { r: 30,  g: 96,  b: 145 },
+            angry:     { r: 214, g: 40,  b: 40 },
+            neutral:   { r: 189, g: 189, b: 189 },
+            surprised: { r: 255, g: 159, b: 28 },
+            disgusted: { r: 106, g: 153, b: 78 },
+            fearful:   { r: 127, g: 168, b: 211 }
+        };
+        
+        function translateEmotion(emotion) {
+            const translations = {
+                neutral: '😐 Neutral',
+                happy: '😄 Feliz',
+                sad: '😢 Triste',
+                angry: '😠 Enojado',
+                fearful: '😨 Temeroso',
+                disgusted: '🤢 Asqueado',
+                surprised: '😲 Sorprendido'
+            };
+            return translations[emotion] || emotion;
+        }
+
+        Promise.all([
+            faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+            faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+            faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL)
+        ]).then(startVideo);
+
+        function startVideo() {
+            navigator.mediaDevices.getUserMedia({ video: {} })
+                .then(stream => {
+                    video.srcObject = stream;
+                })
+                .catch(err => {
+                    console.error("Error al acceder a la cámara: ", err);
+                    loader.innerHTML = "❌ Error al acceder a la cámara. <br> Por favor, permite el acceso y recarga la página.";
+                });
+        }
+
+        video.addEventListener('play', () => {
+            loader.style.display = 'none';
+
+            const canvas = faceapi.createCanvasFromMedia(video);
+            document.getElementById('video-container').append(canvas);
+
+            const displaySize = { width: video.clientWidth, height: video.clientHeight };
+            faceapi.matchDimensions(canvas, displaySize);
+
+            setInterval(async () => {
+                const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions()).withFaceExpressions();
+                
+                canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+
+                if (detections.length > 0) {
+                    const expressions = detections[0].expressions;
+                    updateEmotionResults(expressions);
+                    updateBackgroundColor(expressions);
+                } else {
+                    emotionResultsDiv.innerHTML = `<div class="bg-black/30 backdrop-blur-md p-4 rounded-lg text-center text-gray-300">Buscando un rostro...</div>`;
+                }
+            }, 150);
+        });
+        
+        function updateBackgroundColor(expressions) {
+            let mixedColor = { r: 0, g: 0, b: 0 };
+            for (const emotion in expressions) {
+                if (emotionColors[emotion]) {
+                    const probability = expressions[emotion];
+                    mixedColor.r += emotionColors[emotion].r * probability;
+                    mixedColor.g += emotionColors[emotion].g * probability;
+                    mixedColor.b += emotionColors[emotion].b * probability;
+                }
+            }
+            mixedColor.r = Math.round(mixedColor.r);
+            mixedColor.g = Math.round(mixedColor.g);
+            mixedColor.b = Math.round(mixedColor.b);
+            document.body.style.backgroundColor = `rgb(${mixedColor.r}, ${mixedColor.g}, ${mixedColor.b})`;
+        }
+
+        function updateEmotionResults(expressions) {
+            const sortedEmotions = Object.entries(expressions).sort(([,a],[,b]) => b - a);
+            
+            let resultsHTML = '<div class="bg-black/30 backdrop-blur-md p-3 sm:p-4 rounded-lg flex flex-wrap justify-center items-center gap-x-4 sm:gap-x-6 gap-y-2">';
+
+            sortedEmotions.forEach(([emotion, probability]) => {
+                const percentage = (probability * 100).toFixed(0);
+                // Mostrar solo las emociones con una probabilidad significativa
+                if (percentage >= 1) {
+                     resultsHTML += `
+                        <span class="text-white text-base sm:text-lg font-medium" style="text-shadow: 1px 1px 3px rgba(0,0,0,0.7);">
+                            ${translateEmotion(emotion).split(' ')[0]} ${percentage}%
+                        </span>
+                     `;
+                }
+            });
+
+            resultsHTML += '</div>';
+            emotionResultsDiv.innerHTML = resultsHTML;
+        }
+    </script>
+</body>
+</html>
+
